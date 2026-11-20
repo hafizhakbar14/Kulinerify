@@ -22,11 +22,58 @@ class MenuDetailScreen extends StatefulWidget {
 
 class _MenuDetailScreenState extends State<MenuDetailScreen> {
   final ApiService _apiService = ApiService();
+  late Future<Restaurant?> _originRestaurantFuture;
   bool _isNavigating = false;
 
-  Future<void> _openOriginRestaurant() async {
+  @override
+  void initState() {
+    super.initState();
+    _originRestaurantFuture = _resolveOriginRestaurant();
+  }
+
+  Future<Restaurant?> _resolveOriginRestaurant() async {
+    final directName = widget.menu.restaurantName.trim();
+    final hasDirectName =
+        directName.isNotEmpty && directName.toLowerCase() != 'restoran';
+
+    if (widget.menu.restaurantId.isEmpty && !hasDirectName) {
+      return null;
+    }
+
+    final restaurants = await _apiService.getRestaurants();
+    if (widget.menu.restaurantId.isNotEmpty) {
+      for (final r in restaurants) {
+        if (r.id == widget.menu.restaurantId) {
+          return r;
+        }
+      }
+    }
+
+    if (hasDirectName) {
+      for (final r in restaurants) {
+        if (r.name.toLowerCase() == directName.toLowerCase()) {
+          return r;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  Future<void> _openOriginRestaurant(Restaurant? preloadedRestaurant) async {
     if (widget.fromRestaurantDetail) {
       Navigator.pop(context);
+      return;
+    }
+
+    if (preloadedRestaurant != null) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              RestaurantDetailScreen(restaurant: preloadedRestaurant),
+        ),
+      );
       return;
     }
 
@@ -34,32 +81,14 @@ class _MenuDetailScreenState extends State<MenuDetailScreen> {
     setState(() => _isNavigating = true);
 
     try {
-      final restaurants = await _apiService.getRestaurants();
-      Restaurant? matched;
-
-      if (widget.menu.restaurantId.isNotEmpty) {
-        for (final r in restaurants) {
-          if (r.id == widget.menu.restaurantId) {
-            matched = r;
-            break;
-          }
-        }
-      }
-
-      matched ??= restaurants.cast<Restaurant?>().firstWhere(
-        (r) =>
-            r != null &&
-            r.name.toLowerCase() == widget.menu.restaurantName.toLowerCase(),
-        orElse: () => null,
-      );
-
+      final matched = await _resolveOriginRestaurant();
       if (!mounted) return;
 
       if (matched != null) {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) => RestaurantDetailScreen(restaurant: matched!),
+            builder: (context) => RestaurantDetailScreen(restaurant: matched),
           ),
         );
       } else {
@@ -80,6 +109,9 @@ class _MenuDetailScreenState extends State<MenuDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final menu = widget.menu;
+    final directName = menu.restaurantName.trim();
+    final hasDirectName =
+        directName.isNotEmpty && directName.toLowerCase() != 'restoran';
 
     return ListenableBuilder(
       listenable: favoritesProvider,
@@ -173,31 +205,54 @@ class _MenuDetailScreenState extends State<MenuDetailScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Card(
-                        elevation: 2,
-                        child: ListTile(
-                          leading: const CircleAvatar(
-                            backgroundColor: Colors.deepOrange,
-                            child: Icon(Icons.storefront, color: Colors.white),
-                          ),
-                          title: Text(
-                            menu.restaurantName,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: const Text(
-                            'Ketuk untuk melihat detail restoran',
-                          ),
-                          trailing: _isNavigating
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.arrow_forward_ios, size: 16),
-                          onTap: _openOriginRestaurant,
-                        ),
+                      FutureBuilder<Restaurant?>(
+                        future: _originRestaurantFuture,
+                        builder: (context, snapshot) {
+                          final resolvedRestaurant = snapshot.data;
+                          final displayName = hasDirectName
+                              ? directName
+                              : (resolvedRestaurant?.name ??
+                                    (snapshot.connectionState ==
+                                            ConnectionState.waiting
+                                        ? 'Memuat restoran...'
+                                        : 'Lihat Detail Restoran'));
+
+                          return Card(
+                            elevation: 2,
+                            child: ListTile(
+                              leading: const CircleAvatar(
+                                backgroundColor: Colors.deepOrange,
+                                child: Icon(
+                                  Icons.storefront,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              title: Text(
+                                displayName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              subtitle: const Text(
+                                'Ketuk untuk melihat detail restoran',
+                              ),
+                              trailing: _isNavigating
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.arrow_forward_ios,
+                                      size: 16,
+                                    ),
+                              onTap: () =>
+                                  _openOriginRestaurant(resolvedRestaurant),
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
