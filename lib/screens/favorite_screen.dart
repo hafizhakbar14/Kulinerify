@@ -39,9 +39,21 @@ class FavoriteScreen extends StatelessWidget {
                   (restaurant) => Card(
                     margin: const EdgeInsets.only(bottom: 10),
                     child: ListTile(
-                      leading: const CircleAvatar(
-                        backgroundColor: Colors.deepOrange,
-                        child: Icon(Icons.restaurant, color: Colors.white),
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          restaurant.imageUrl,
+                          width: 52,
+                          height: 52,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(
+                                width: 52,
+                                height: 52,
+                                color: Colors.grey.shade300,
+                                child: const Icon(Icons.restaurant, size: 24),
+                              ),
+                        ),
                       ),
                       title: Text(
                         restaurant.name,
@@ -75,21 +87,39 @@ class FavoriteScreen extends StatelessWidget {
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                ...favMenus.map(
-                  (menu) => Card(
+                ...favMenus.map((menu) {
+                  final cleanRestaurant = menu.restaurantName.trim();
+                  final hasValidRestaurant =
+                      cleanRestaurant.isNotEmpty &&
+                      cleanRestaurant.toLowerCase() != 'restoran';
+                  final menuSubtitle = hasValidRestaurant
+                      ? '$cleanRestaurant • Rp ${menu.price}'
+                      : 'Rp ${menu.price}';
+
+                  return Card(
                     margin: const EdgeInsets.only(bottom: 10),
                     child: ListTile(
-                      leading: const CircleAvatar(
-                        backgroundColor: Colors.orangeAccent,
-                        child: Icon(Icons.fastfood, color: Colors.white),
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          menu.imageUrl,
+                          width: 52,
+                          height: 52,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(
+                                width: 52,
+                                height: 52,
+                                color: Colors.grey.shade300,
+                                child: const Icon(Icons.fastfood, size: 24),
+                              ),
+                        ),
                       ),
                       title: Text(
                         menu.name,
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      subtitle: Text(
-                        '${menu.restaurantName} • Rp ${menu.price}',
-                      ),
+                      subtitle: Text(menuSubtitle),
                       trailing: IconButton(
                         icon: const Icon(Icons.favorite, color: Colors.red),
                         onPressed: () =>
@@ -104,8 +134,8 @@ class FavoriteScreen extends StatelessWidget {
                         );
                       },
                     ),
-                  ),
-                ),
+                  );
+                }),
               ],
             ],
           );

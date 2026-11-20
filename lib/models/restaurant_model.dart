@@ -44,4 +44,16 @@ class Restaurant {
       mapsUrl: rawMapsUrl.isNotEmpty ? rawMapsUrl : fallbackMapsUrl,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'category': category,
+      'address': address,
+      'rating': rating,
+      'image_url': imageUrl,
+      'maps_url': mapsUrl,
+    };
+  }
 }

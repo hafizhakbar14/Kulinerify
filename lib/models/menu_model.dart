@@ -42,12 +42,24 @@ class Menu {
           (json['restaurant_name'] ??
                   json['restaurantName'] ??
                   nestedName ??
-                  'Restoran')
+                  '')
               .toString(),
       name: (json['name'] ?? 'Menu Tanpa Nama').toString(),
       description: (json['description'] ?? '').toString(),
       price: parsedPrice,
       imageUrl: (json['image_url'] ?? json['imageUrl'] ?? '').toString(),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'restaurant_id': restaurantId,
+      'restaurant_name': restaurantName,
+      'name': name,
+      'description': description,
+      'price': price,
+      'image_url': imageUrl,
+    };
   }
 }
