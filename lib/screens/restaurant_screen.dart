@@ -67,10 +67,186 @@ class _RestaurantScreenState extends State<RestaurantScreen> {
     }).toList();
   }
 
+  Future<void> _showAddRestaurantDialog() async {
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController();
+    final categoryController = TextEditingController();
+    final addressController = TextEditingController();
+    final ratingController = TextEditingController();
+    final imageUrlController = TextEditingController();
+    final mapsUrlController = TextEditingController();
+    bool isSubmitting = false;
+
+    final bool? created = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> submit() async {
+              if (!formKey.currentState!.validate()) return;
+
+              final rawRating = ratingController.text.trim();
+              double? parsedRating;
+              if (rawRating.isNotEmpty) {
+                parsedRating = double.tryParse(rawRating.replaceAll(',', '.'));
+                if (parsedRating == null ||
+                    parsedRating < 0 ||
+                    parsedRating > 5) {
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Rating harus berupa angka 0.0 - 5.0'),
+                    ),
+                  );
+                  return;
+                }
+              }
+
+              setDialogState(() {
+                isSubmitting = true;
+              });
+
+              try {
+                await _apiService.createRestaurant(
+                  name: nameController.text,
+                  category: categoryController.text,
+                  address: addressController.text,
+                  rating: parsedRating,
+                  imageUrl: imageUrlController.text,
+                  mapsUrl: mapsUrlController.text,
+                );
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop(true);
+                }
+              } catch (e) {
+                setDialogState(() {
+                  isSubmitting = false;
+                });
+                if (this.context.mounted) {
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    SnackBar(content: Text('Gagal menambah restoran: $e')),
+                  );
+                }
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('Tambah Restoran'),
+              content: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextFormField(
+                        controller: nameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Nama Restoran *',
+                        ),
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Nama wajib diisi'
+                            : null,
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: categoryController,
+                        decoration: const InputDecoration(
+                          labelText: 'Kategori *',
+                          hintText: 'Contoh: Ayam, Kopi, Warkop',
+                        ),
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Kategori wajib diisi'
+                            : null,
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: addressController,
+                        decoration: const InputDecoration(
+                          labelText: 'Alamat *',
+                        ),
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Alamat wajib diisi'
+                            : null,
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: ratingController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Rating (opsional)',
+                          hintText: 'Contoh: 4.5',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: imageUrlController,
+                        decoration: const InputDecoration(
+                          labelText: 'Image URL (opsional)',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: mapsUrlController,
+                        decoration: const InputDecoration(
+                          labelText: 'Maps URL (opsional)',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Batal'),
+                ),
+                ElevatedButton(
+                  onPressed: isSubmitting ? null : submit,
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Simpan'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    nameController.dispose();
+    categoryController.dispose();
+    addressController.dispose();
+    ratingController.dispose();
+    imageUrlController.dispose();
+    mapsUrlController.dispose();
+
+    if (created == true && mounted) {
+      await _refreshRestaurants();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Restoran berhasil ditambahkan!')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Kuliner Tembalang')),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showAddRestaurantDialog,
+        tooltip: 'Tambah Restoran',
+        child: const Icon(Icons.add),
+      ),
       body: RefreshIndicator(
         onRefresh: _refreshRestaurants,
         child: FutureBuilder<List<Restaurant>>(
@@ -198,7 +374,7 @@ class _RestaurantScreenState extends State<RestaurantScreen> {
                           ],
                         )
                       : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
                           itemCount: filteredRestaurants.length,
                           itemBuilder: (context, index) {
                             final restaurant = filteredRestaurants[index];

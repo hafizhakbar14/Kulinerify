@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/menu_model.dart';
+import '../models/restaurant_model.dart';
 import '../services/api_service.dart';
 import 'menu_detail_screen.dart';
 
@@ -108,10 +109,206 @@ class _MenuScreenState extends State<MenuScreen> {
     }).toList();
   }
 
+  Future<void> _showAddMenuDialog() async {
+    List<Restaurant> restaurants = [];
+    String? loadError;
+
+    try {
+      restaurants = await _apiService.getRestaurants();
+    } catch (e) {
+      loadError = e.toString();
+    }
+
+    if (!mounted) return;
+
+    if (loadError != null || restaurants.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            loadError != null
+                ? 'Gagal memuat daftar restoran: $loadError'
+                : 'Tambahkan restoran terlebih dahulu sebelum menambah menu.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController();
+    final priceController = TextEditingController();
+    final descriptionController = TextEditingController();
+    final imageUrlController = TextEditingController();
+    Restaurant selectedRestaurant = restaurants.first;
+    bool isSubmitting = false;
+
+    final bool? created = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> submit() async {
+              if (!formKey.currentState!.validate()) return;
+
+              final parsedPrice = int.tryParse(priceController.text.trim());
+              if (parsedPrice == null || parsedPrice < 0) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Harga harus berupa angka bulat valid'),
+                  ),
+                );
+                return;
+              }
+
+              setDialogState(() {
+                isSubmitting = true;
+              });
+
+              try {
+                await _apiService.createMenu(
+                  restaurantId: selectedRestaurant.id,
+                  restaurantName: selectedRestaurant.name,
+                  name: nameController.text,
+                  price: parsedPrice,
+                  description: descriptionController.text,
+                  imageUrl: imageUrlController.text,
+                );
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop(true);
+                }
+              } catch (e) {
+                setDialogState(() {
+                  isSubmitting = false;
+                });
+                if (this.context.mounted) {
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    SnackBar(content: Text('Gagal menambah menu: $e')),
+                  );
+                }
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('Tambah Menu'),
+              content: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      DropdownButtonFormField<Restaurant>(
+                        initialValue: selectedRestaurant,
+                        decoration: const InputDecoration(
+                          labelText: 'Restoran *',
+                        ),
+                        items: restaurants
+                            .map(
+                              (r) => DropdownMenuItem<Restaurant>(
+                                value: r,
+                                child: Text(
+                                  r.name,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setDialogState(() {
+                              selectedRestaurant = value;
+                            });
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: nameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Nama Menu *',
+                        ),
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Nama menu wajib diisi'
+                            : null,
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: priceController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Harga (Rp) *',
+                          hintText: 'Contoh: 15000',
+                        ),
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Harga wajib diisi'
+                            : null,
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: descriptionController,
+                        decoration: const InputDecoration(
+                          labelText: 'Deskripsi (opsional)',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: imageUrlController,
+                        decoration: const InputDecoration(
+                          labelText: 'Image URL (opsional)',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Batal'),
+                ),
+                ElevatedButton(
+                  onPressed: isSubmitting ? null : submit,
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Simpan'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    nameController.dispose();
+    priceController.dispose();
+    descriptionController.dispose();
+    imageUrlController.dispose();
+
+    if (created == true && mounted) {
+      await _refreshMenus();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Menu berhasil ditambahkan!')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Daftar Menu')),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showAddMenuDialog,
+        tooltip: 'Tambah Menu',
+        child: const Icon(Icons.add),
+      ),
       body: RefreshIndicator(
         onRefresh: _refreshMenus,
         child: FutureBuilder<List<Menu>>(
@@ -232,7 +429,7 @@ class _MenuScreenState extends State<MenuScreen> {
                           ],
                         )
                       : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 80),
                           itemCount: filteredMenus.length,
                           itemBuilder: (context, index) {
                             final menu = filteredMenus[index];
