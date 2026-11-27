@@ -6,6 +6,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/menu_model.dart';
 import '../models/restaurant_model.dart';
 
+/// Pemberitahuan sederhana: dipanggil setelah data restoran/menu berubah
+/// (tambah, edit, hapus) agar layar lain memuat ulang datanya.
+class DataSync extends ChangeNotifier {
+  void bump() => notifyListeners();
+}
+
+final DataSync dataSync = DataSync();
+
 class FavoritesProvider extends ChangeNotifier {
   static const String _restaurantsKey = 'favorite_restaurants_v1';
   static const String _menusKey = 'favorite_menus_v1';
@@ -108,6 +116,66 @@ class FavoritesProvider extends ChangeNotifier {
     }
     notifyListeners();
     _saveMenus();
+  }
+
+  // --- Sinkronisasi setelah edit / hapus data ---
+
+  /// Perbarui salinan restoran favorit (dan nama restoran di menu favorit).
+  void syncRestaurant(Restaurant updated) {
+    var restaurantChanged = false;
+    var menusChanged = false;
+
+    final index = _favoriteRestaurants.indexWhere((r) => r.id == updated.id);
+    if (index >= 0) {
+      _favoriteRestaurants[index] = updated;
+      restaurantChanged = true;
+    }
+
+    for (var i = 0; i < _favoriteMenus.length; i++) {
+      final m = _favoriteMenus[i];
+      if (m.restaurantId == updated.id && m.restaurantName != updated.name) {
+        _favoriteMenus[i] = Menu(
+          id: m.id,
+          restaurantId: m.restaurantId,
+          restaurantName: updated.name,
+          name: m.name,
+          description: m.description,
+          price: m.price,
+          imageUrl: m.imageUrl,
+        );
+        menusChanged = true;
+      }
+    }
+
+    if (restaurantChanged || menusChanged) notifyListeners();
+    if (restaurantChanged) _saveRestaurants();
+    if (menusChanged) _saveMenus();
+  }
+
+  void removeRestaurantById(String id) {
+    final before = _favoriteRestaurants.length;
+    _favoriteRestaurants.removeWhere((r) => r.id == id);
+    if (_favoriteRestaurants.length != before) {
+      notifyListeners();
+      _saveRestaurants();
+    }
+  }
+
+  void syncMenu(Menu updated) {
+    final index = _favoriteMenus.indexWhere((m) => m.id == updated.id);
+    if (index < 0) return;
+    _favoriteMenus[index] = updated;
+    notifyListeners();
+    _saveMenus();
+  }
+
+  void removeMenuById(String id) {
+    final before = _favoriteMenus.length;
+    _favoriteMenus.removeWhere((m) => m.id == id);
+    if (_favoriteMenus.length != before) {
+      notifyListeners();
+      _saveMenus();
+    }
   }
 }
 
