@@ -1,47 +1,97 @@
 import 'package:flutter/material.dart';
 
+import '../providers/auth_provider.dart';
+import '../widgets/confirm_dialog.dart';
+
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
+
+  Future<void> _logout(BuildContext context) async {
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Keluar dari akun?',
+      message: 'Kamu perlu login lagi untuk menggunakan Kulinerify.',
+      confirmLabel: 'Keluar',
+    );
+    if (!confirmed) return;
+    await authProvider.logout();
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final user = authProvider.currentUser;
+    final initial = (user != null && user.name.isNotEmpty)
+        ? user.name[0].toUpperCase()
+        : '?';
 
     return Scaffold(
       appBar: AppBar(title: const Text('Profile / About')),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
           Center(
             child: CircleAvatar(
-              radius: 50,
+              radius: 44,
               backgroundColor: scheme.primary,
-              child: Icon(Icons.person, size: 60, color: scheme.onPrimary),
+              child: Text(
+                initial,
+                style: TextStyle(
+                  fontSize: 36,
+                  fontWeight: FontWeight.bold,
+                  color: scheme.onPrimary,
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 16),
-          const Text(
-            'Hafizh Muhammad Akbar',
+          const SizedBox(height: 14),
+          Text(
+            user?.name ?? '-',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
-          const Text(
-            'NIM: 21120124130098',
+          Text(
+            user?.email ?? '-',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 16, color: Colors.grey),
+            style: const TextStyle(fontSize: 15, color: Colors.grey),
+          ),
+          const SizedBox(height: 14),
+          Center(
+            child: OutlinedButton.icon(
+              onPressed: () => _logout(context),
+              icon: const Icon(Icons.logout),
+              label: const Text('Keluar'),
+            ),
           ),
           const SizedBox(height: 20),
           const Divider(),
-          ListTile(
-            leading: Icon(Icons.school, color: scheme.primary),
-            title: const Text('Program Studi'),
-            subtitle: const Text('Teknik Komputer'),
-          ),
-          ListTile(
-            leading: Icon(Icons.code, color: scheme.primary),
-            title: const Text('Mata Kuliah'),
-            subtitle: const Text('Praktikum PPB 2026 - Tugas Akhir'),
+          const SizedBox(height: 8),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(Icons.badge_outlined, color: scheme.primary),
+                  title: const Text('Pengembang'),
+                  subtitle: const Text('Hafizh Muhammad Akbar'),
+                ),
+                ListTile(
+                  leading: Icon(Icons.numbers, color: scheme.primary),
+                  title: const Text('NIM'),
+                  subtitle: const Text('21120124130098'),
+                ),
+                ListTile(
+                  leading: Icon(Icons.school, color: scheme.primary),
+                  title: const Text('Program Studi'),
+                  subtitle: const Text('Teknik Komputer'),
+                ),
+                ListTile(
+                  leading: Icon(Icons.code, color: scheme.primary),
+                  title: const Text('Mata Kuliah'),
+                  subtitle: const Text('Praktikum PPB 2026 - Tugas Akhir'),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
           Card(
@@ -77,6 +127,7 @@ class ProfileScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   const Text(
+                    '• Login dan buat akun\n'
                     '• Daftar restoran dan menu dengan pencarian & filter\n'
                     '• Tambah, edit, dan hapus data restoran/menu\n'
                     '• Favorit yang tersimpan di perangkat\n'
