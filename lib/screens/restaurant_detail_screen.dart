@@ -5,12 +5,23 @@ import '../models/menu_model.dart';
 import '../models/restaurant_model.dart';
 import '../providers/app_state.dart';
 import '../services/api_service.dart';
+import '../utils/format.dart';
+import '../widgets/confirm_dialog.dart';
+import '../widgets/error_state.dart';
+import '../widgets/restaurant_form_dialog.dart';
 import 'menu_detail_screen.dart';
 
 class RestaurantDetailScreen extends StatefulWidget {
   final Restaurant restaurant;
 
-  const RestaurantDetailScreen({super.key, required this.restaurant});
+  /// Tag Hero dari layar asal (null = tanpa animasi Hero).
+  final String? heroTag;
+
+  const RestaurantDetailScreen({
+    super.key,
+    required this.restaurant,
+    this.heroTag,
+  });
 
   @override
   State<RestaurantDetailScreen> createState() => _RestaurantDetailScreenState();
@@ -18,29 +29,115 @@ class RestaurantDetailScreen extends StatefulWidget {
 
 class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
   final ApiService _apiService = ApiService();
+  late Restaurant _restaurant;
   late Future<List<Menu>> _restaurantMenusFuture;
+  bool _isDeleting = false;
 
   @override
   void initState() {
     super.initState();
-    _restaurantMenusFuture = _apiService.getMenusByRestaurant(
-      widget.restaurant.id,
-    );
+    _restaurant = widget.restaurant;
+    _restaurantMenusFuture = _apiService.getMenusByRestaurant(_restaurant.id);
+    dataSync.addListener(_reloadMenus);
+  }
+
+  @override
+  void dispose() {
+    dataSync.removeListener(_reloadMenus);
+    super.dispose();
+  }
+
+  void _reloadMenus() {
+    if (!mounted) return;
+    setState(() {
+      _restaurantMenusFuture = _apiService.getMenusByRestaurant(_restaurant.id);
+    });
   }
 
   Future<void> _openGoogleMaps() async {
-    final uri = Uri.parse(widget.restaurant.mapsUrl);
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tidak dapat membuka Google Maps.')),
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final uri = Uri.parse(_restaurant.mapsUrl);
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!opened) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Tidak dapat membuka Google Maps.')),
+        );
+      }
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Link lokasi tidak valid.')),
       );
+    }
+  }
+
+  Future<void> _editRestaurant() async {
+    final updated = await showDialog<Restaurant>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => RestaurantFormDialog(initial: _restaurant),
+    );
+
+    if (updated == null || !mounted) return;
+
+    setState(() => _restaurant = updated);
+    favoritesProvider.syncRestaurant(updated);
+    dataSync.bump();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Restoran berhasil diperbarui!')),
+    );
+  }
+
+  Future<void> _deleteRestaurant() async {
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Hapus restoran?',
+      message:
+          'Restoran "${_restaurant.name}" akan dihapus permanen. '
+          'Menu milik restoran ini mungkin ikut terhapus.',
+      confirmLabel: 'Hapus',
+    );
+    if (!confirmed || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    setState(() => _isDeleting = true);
+
+    try {
+      await _apiService.deleteRestaurant(_restaurant.id);
+      favoritesProvider.removeRestaurantById(_restaurant.id);
+      dataSync.bump();
+      if (!mounted) return;
+      navigator.pop();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Restoran berhasil dihapus.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isDeleting = false);
+      messenger.showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final restaurant = widget.restaurant;
+    final restaurant = _restaurant;
+    final scheme = Theme.of(context).colorScheme;
+
+    Widget heroImage = Image.network(
+      restaurant.imageUrl,
+      height: 220,
+      width: double.infinity,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) => Container(
+        height: 220,
+        color: Colors.grey.shade300,
+        child: const Center(child: Icon(Icons.restaurant, size: 64)),
+      ),
+    );
+    if (widget.heroTag != null) {
+      heroImage = Hero(tag: widget.heroTag!, child: heroImage);
+    }
 
     return ListenableBuilder(
       listenable: favoritesProvider,
@@ -50,6 +147,12 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
         return Scaffold(
           appBar: AppBar(
             title: Text(restaurant.name),
+            bottom: _isDeleting
+                ? const PreferredSize(
+                    preferredSize: Size.fromHeight(3),
+                    child: LinearProgressIndicator(),
+                  )
+                : null,
             actions: [
               IconButton(
                 icon: Icon(
@@ -72,25 +175,45 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                   );
                 },
               ),
+              PopupMenuButton<String>(
+                enabled: !_isDeleting,
+                onSelected: (value) {
+                  if (value == 'edit') {
+                    _editRestaurant();
+                  } else if (value == 'delete') {
+                    _deleteRestaurant();
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'edit',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit_outlined),
+                        SizedBox(width: 12),
+                        Text('Edit'),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete_outline),
+                        SizedBox(width: 12),
+                        Text('Hapus'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
           body: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Image.network(
-                  restaurant.imageUrl,
-                  height: 220,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    height: 220,
-                    color: Colors.grey.shade300,
-                    child: const Center(
-                      child: Icon(Icons.restaurant, size: 64),
-                    ),
-                  ),
-                ),
+                heroImage,
                 Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
@@ -111,7 +234,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                           const Icon(Icons.star, color: Colors.amber, size: 20),
                           const SizedBox(width: 4),
                           Text(
-                            restaurant.rating.toString(),
+                            restaurant.rating.toStringAsFixed(1),
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ],
@@ -120,10 +243,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(
-                            Icons.location_on,
-                            color: Colors.deepOrange,
-                          ),
+                          Icon(Icons.location_on, color: scheme.primary),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
@@ -138,14 +258,14 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                         width: double.infinity,
                         child: OutlinedButton.icon(
                           onPressed: _openGoogleMaps,
-                          icon: const Icon(Icons.map, color: Colors.deepOrange),
+                          icon: Icon(Icons.map, color: scheme.primary),
                           label: const Text(
                             'Buka Lokasi di Google Maps',
                             style: TextStyle(fontWeight: FontWeight.bold),
                           ),
                           style: OutlinedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 12),
-                            side: const BorderSide(color: Colors.deepOrange),
+                            side: BorderSide(color: scheme.primary),
                           ),
                         ),
                       ),
@@ -173,7 +293,10 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                             );
                           }
                           if (snapshot.hasError) {
-                            return Text('Gagal memuat menu: ${snapshot.error}');
+                            return ErrorState(
+                              error: snapshot.error!,
+                              onRetry: _reloadMenus,
+                            );
                           }
                           final menus = snapshot.data ?? [];
                           if (menus.isEmpty) {
@@ -192,27 +315,31 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                             itemCount: menus.length,
                             itemBuilder: (context, index) {
                               final menu = menus[index];
+                              final heroTag = 'rdetail-menu-${menu.id}';
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 10),
                                 child: ListTile(
-                                  leading: ClipRRect(
-                                    borderRadius: BorderRadius.circular(6),
-                                    child: Image.network(
-                                      menu.imageUrl,
-                                      width: 48,
-                                      height: 48,
-                                      fit: BoxFit.cover,
-                                      errorBuilder:
-                                          (context, error, stackTrace) =>
-                                              Container(
-                                                width: 48,
-                                                height: 48,
-                                                color: Colors.grey.shade300,
-                                                child: const Icon(
-                                                  Icons.fastfood,
-                                                  size: 22,
+                                  leading: Hero(
+                                    tag: heroTag,
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(6),
+                                      child: Image.network(
+                                        menu.imageUrl,
+                                        width: 48,
+                                        height: 48,
+                                        fit: BoxFit.cover,
+                                        errorBuilder:
+                                            (context, error, stackTrace) =>
+                                                Container(
+                                                  width: 48,
+                                                  height: 48,
+                                                  color: Colors.grey.shade300,
+                                                  child: const Icon(
+                                                    Icons.fastfood,
+                                                    size: 22,
+                                                  ),
                                                 ),
-                                              ),
+                                      ),
                                     ),
                                   ),
                                   title: Text(
@@ -221,7 +348,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
-                                  subtitle: Text('Rp ${menu.price}'),
+                                  subtitle: Text(formatRupiah(menu.price)),
                                   trailing: const Icon(
                                     Icons.arrow_forward_ios,
                                     size: 15,
@@ -230,9 +357,10 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (context) => MenuDetailScreen(
+                                        builder: (_) => MenuDetailScreen(
                                           menu: menu,
                                           fromRestaurantDetail: true,
+                                          heroTag: heroTag,
                                         ),
                                       ),
                                     );

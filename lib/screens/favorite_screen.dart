@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../providers/app_state.dart';
+import '../utils/format.dart';
+import '../widgets/category_rating.dart';
 import 'menu_detail_screen.dart';
 import 'restaurant_detail_screen.dart';
 
@@ -35,32 +37,37 @@ class FavoriteScreen extends StatelessWidget {
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                ...favRestaurants.map(
-                  (restaurant) => Card(
+                ...favRestaurants.map((restaurant) {
+                  final heroTag = 'fav-rest-${restaurant.id}';
+                  return Card(
                     margin: const EdgeInsets.only(bottom: 10),
                     child: ListTile(
-                      leading: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          restaurant.imageUrl,
-                          width: 52,
-                          height: 52,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              Container(
-                                width: 52,
-                                height: 52,
-                                color: Colors.grey.shade300,
-                                child: const Icon(Icons.restaurant, size: 24),
-                              ),
+                      leading: Hero(
+                        tag: heroTag,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            restaurant.imageUrl,
+                            width: 52,
+                            height: 52,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) =>
+                                Container(
+                                  width: 52,
+                                  height: 52,
+                                  color: Colors.grey.shade300,
+                                  child: const Icon(Icons.restaurant, size: 24),
+                                ),
+                          ),
                         ),
                       ),
                       title: Text(
                         restaurant.name,
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      subtitle: Text(
-                        '${restaurant.category} • ⭐ ${restaurant.rating}',
+                      subtitle: CategoryRating(
+                        category: restaurant.category,
+                        rating: restaurant.rating,
                       ),
                       trailing: IconButton(
                         icon: const Icon(Icons.favorite, color: Colors.red),
@@ -71,14 +78,16 @@ class FavoriteScreen extends StatelessWidget {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) =>
-                                RestaurantDetailScreen(restaurant: restaurant),
+                            builder: (_) => RestaurantDetailScreen(
+                              restaurant: restaurant,
+                              heroTag: heroTag,
+                            ),
                           ),
                         );
                       },
                     ),
-                  ),
-                ),
+                  );
+                }),
                 const SizedBox(height: 16),
               ],
               if (favMenus.isNotEmpty) ...[
@@ -88,31 +97,35 @@ class FavoriteScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 ...favMenus.map((menu) {
+                  final heroTag = 'fav-menu-${menu.id}';
                   final cleanRestaurant = menu.restaurantName.trim();
                   final hasValidRestaurant =
                       cleanRestaurant.isNotEmpty &&
                       cleanRestaurant.toLowerCase() != 'restoran';
                   final menuSubtitle = hasValidRestaurant
-                      ? '$cleanRestaurant • Rp ${menu.price}'
-                      : 'Rp ${menu.price}';
+                      ? '$cleanRestaurant • ${formatRupiah(menu.price)}'
+                      : formatRupiah(menu.price);
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 10),
                     child: ListTile(
-                      leading: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          menu.imageUrl,
-                          width: 52,
-                          height: 52,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              Container(
-                                width: 52,
-                                height: 52,
-                                color: Colors.grey.shade300,
-                                child: const Icon(Icons.fastfood, size: 24),
-                              ),
+                      leading: Hero(
+                        tag: heroTag,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            menu.imageUrl,
+                            width: 52,
+                            height: 52,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) =>
+                                Container(
+                                  width: 52,
+                                  height: 52,
+                                  color: Colors.grey.shade300,
+                                  child: const Icon(Icons.fastfood, size: 24),
+                                ),
+                          ),
                         ),
                       ),
                       title: Text(
@@ -129,7 +142,8 @@ class FavoriteScreen extends StatelessWidget {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => MenuDetailScreen(menu: menu),
+                            builder: (_) =>
+                                MenuDetailScreen(menu: menu, heroTag: heroTag),
                           ),
                         );
                       },

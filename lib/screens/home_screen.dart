@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 
+import 'dart:async';
+
 import '../models/menu_model.dart';
 import '../models/restaurant_model.dart';
+import '../providers/app_state.dart';
 import '../services/api_service.dart';
+import '../utils/format.dart';
+import '../widgets/category_rating.dart';
+import '../widgets/error_state.dart';
 import 'menu_detail_screen.dart';
 import 'restaurant_detail_screen.dart';
 
@@ -21,15 +27,29 @@ class _HomeScreenState extends State<HomeScreen> {
   late Future<List<Menu>> _menusFuture;
 
   int _currentCarouselIndex = 0;
+  Timer? _autoSlideTimer;
+  int _carouselCount = 0;
 
   @override
   void initState() {
     super.initState();
     _loadHomeData();
+    dataSync.addListener(_onDataChanged);
+    _autoSlideTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!_carouselController.hasClients || _carouselCount < 2) return;
+      final next = (_currentCarouselIndex + 1) % _carouselCount;
+      _carouselController.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOut,
+      );
+    });
   }
 
   @override
   void dispose() {
+    _autoSlideTimer?.cancel();
+    dataSync.removeListener(_onDataChanged);
     _carouselController.dispose();
     super.dispose();
   }
@@ -37,6 +57,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void _loadHomeData() {
     _restaurantsFuture = _apiService.getRestaurants();
     _menusFuture = _apiService.getMenus();
+  }
+
+  // Dipanggil saat ada tambah/edit/hapus di layar lain.
+  void _onDataChanged() {
+    if (!mounted) return;
+    setState(_loadHomeData);
   }
 
   Future<void> _refreshHomeData() async {
@@ -57,10 +83,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildTopRatedCarousel(List<Restaurant> restaurants) {
+    final scheme = Theme.of(context).colorScheme;
     final topRestaurants = _getTopRatedRestaurants(restaurants);
     if (topRestaurants.isEmpty) {
       return const SizedBox.shrink();
     }
+    _carouselCount = topRestaurants.length;
 
     if (_currentCarouselIndex >= topRestaurants.length) {
       _currentCarouselIndex = 0;
@@ -87,13 +115,16 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             itemBuilder: (context, index) {
               final restaurant = topRestaurants[index];
+              final heroTag = 'home-top-${restaurant.id}';
               return GestureDetector(
                 onTap: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) =>
-                          RestaurantDetailScreen(restaurant: restaurant),
+                      builder: (_) => RestaurantDetailScreen(
+                        restaurant: restaurant,
+                        heroTag: heroTag,
+                      ),
                     ),
                   );
                 },
@@ -102,18 +133,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      Image.network(
-                        restaurant.imageUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => Container(
-                          color: Colors.deepOrange.shade100,
-                          child: const Center(
-                            child: Icon(
-                              Icons.restaurant,
-                              size: 48,
-                              color: Colors.deepOrange,
-                            ),
-                          ),
+                      Hero(
+                        tag: heroTag,
+                        child: Image.network(
+                          restaurant.imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(
+                                color: scheme.primaryContainer,
+                                child: Center(
+                                  child: Icon(
+                                    Icons.restaurant,
+                                    size: 48,
+                                    color: scheme.primary,
+                                  ),
+                                ),
+                              ),
                         ),
                       ),
                       Container(
@@ -142,16 +177,27 @@ class _HomeScreenState extends State<HomeScreen> {
                                 vertical: 3,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.deepOrange,
+                                color: scheme.primary,
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              child: Text(
-                                '⭐ ${restaurant.rating.toStringAsFixed(1)} • ${restaurant.category}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.star,
+                                    size: 12,
+                                    color: scheme.onPrimary,
+                                  ),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    '${restaurant.rating.toStringAsFixed(1)} • ${restaurant.category}',
+                                    style: TextStyle(
+                                      color: scheme.onPrimary,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                             const SizedBox(height: 6),
@@ -196,7 +242,7 @@ class _HomeScreenState extends State<HomeScreen> {
               width: isActive ? 18 : 7,
               height: 7,
               decoration: BoxDecoration(
-                color: isActive ? Colors.deepOrange : Colors.grey.shade300,
+                color: isActive ? scheme.primary : Colors.grey.shade300,
                 borderRadius: BorderRadius.circular(99),
               ),
             );
@@ -226,14 +272,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 }
 
                 if (snapshot.hasError) {
-                  return Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Text(
-                        'Belum bisa memuat data restoran: ${snapshot.error}',
-                        style: TextStyle(color: Colors.grey.shade700),
-                      ),
-                    ),
+                  return ErrorState(
+                    error: snapshot.error!,
+                    onRetry: () => setState(_loadHomeData),
                   );
                 }
 
@@ -263,31 +304,36 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 10),
                     ...featuredRestaurants.map((restaurant) {
+                      final heroTag = 'home-rec-${restaurant.id}';
                       return Card(
                         margin: const EdgeInsets.only(bottom: 10),
                         child: ListTile(
-                          leading: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Image.network(
-                              restaurant.imageUrl,
-                              width: 54,
-                              height: 54,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) =>
-                                  Container(
-                                    width: 54,
-                                    height: 54,
-                                    color: Colors.grey.shade300,
-                                    child: const Icon(Icons.restaurant),
-                                  ),
+                          leading: Hero(
+                            tag: heroTag,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.network(
+                                restaurant.imageUrl,
+                                width: 54,
+                                height: 54,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    Container(
+                                      width: 54,
+                                      height: 54,
+                                      color: Colors.grey.shade300,
+                                      child: const Icon(Icons.restaurant),
+                                    ),
+                              ),
                             ),
                           ),
                           title: Text(
                             restaurant.name,
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
-                          subtitle: Text(
-                            '${restaurant.category} • ⭐ ${restaurant.rating}',
+                          subtitle: CategoryRating(
+                            category: restaurant.category,
+                            rating: restaurant.rating,
                           ),
                           trailing: const Icon(
                             Icons.arrow_forward_ios,
@@ -297,8 +343,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => RestaurantDetailScreen(
+                                builder: (_) => RestaurantDetailScreen(
                                   restaurant: restaurant,
+                                  heroTag: heroTag,
                                 ),
                               ),
                             );
@@ -329,14 +376,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 }
 
                 if (snapshot.hasError) {
-                  return Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Text(
-                        'Belum bisa memuat menu pilihan: ${snapshot.error}',
-                        style: TextStyle(color: Colors.grey.shade700),
-                      ),
-                    ),
+                  return ErrorState(
+                    error: snapshot.error!,
+                    onRetry: () => setState(_loadHomeData),
                   );
                 }
 
@@ -354,31 +396,35 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 return Column(
                   children: featuredMenus.map((menu) {
+                    final heroTag = 'home-menu-${menu.id}';
                     final cleanRestaurant = menu.restaurantName.trim();
                     final hasValidRestaurant =
                         cleanRestaurant.isNotEmpty &&
                         cleanRestaurant.toLowerCase() != 'restoran';
                     final subtitleText = hasValidRestaurant
-                        ? '$cleanRestaurant • Rp ${menu.price}'
-                        : 'Rp ${menu.price}';
+                        ? '$cleanRestaurant • ${formatRupiah(menu.price)}'
+                        : formatRupiah(menu.price);
 
                     return Card(
                       margin: const EdgeInsets.only(bottom: 10),
                       child: ListTile(
-                        leading: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            menu.imageUrl,
-                            width: 54,
-                            height: 54,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
-                                Container(
-                                  width: 54,
-                                  height: 54,
-                                  color: Colors.grey.shade300,
-                                  child: const Icon(Icons.fastfood),
-                                ),
+                        leading: Hero(
+                          tag: heroTag,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              menu.imageUrl,
+                              width: 54,
+                              height: 54,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  Container(
+                                    width: 54,
+                                    height: 54,
+                                    color: Colors.grey.shade300,
+                                    child: const Icon(Icons.fastfood),
+                                  ),
+                            ),
                           ),
                         ),
                         title: Text(
@@ -391,8 +437,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) =>
-                                  MenuDetailScreen(menu: menu),
+                              builder: (_) => MenuDetailScreen(
+                                menu: menu,
+                                heroTag: heroTag,
+                              ),
                             ),
                           );
                         },

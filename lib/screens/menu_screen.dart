@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../models/menu_model.dart';
-import '../models/restaurant_model.dart';
+import '../providers/app_state.dart';
 import '../services/api_service.dart';
+import '../utils/format.dart';
+import '../widgets/error_state.dart';
+import '../widgets/menu_form_dialog.dart';
 import 'menu_detail_screen.dart';
 
 class MenuScreen extends StatefulWidget {
@@ -32,19 +35,33 @@ class _MenuScreenState extends State<MenuScreen> {
   void initState() {
     super.initState();
     _menusFuture = _apiService.getMenus();
+    dataSync.addListener(_onDataChanged);
   }
 
   @override
   void dispose() {
+    dataSync.removeListener(_onDataChanged);
     _searchController.dispose();
     super.dispose();
+  }
+
+  // Dipanggil saat ada tambah/edit/hapus (dari layar ini maupun layar lain).
+  void _onDataChanged() {
+    if (!mounted) return;
+    setState(() {
+      _menusFuture = _apiService.getMenus();
+    });
   }
 
   Future<void> _refreshMenus() async {
     setState(() {
       _menusFuture = _apiService.getMenus();
     });
-    await _menusFuture;
+    try {
+      await _menusFuture;
+    } catch (_) {
+      // Error ditampilkan oleh FutureBuilder.
+    }
   }
 
   String _inferMenuCategory(Menu menu) {
@@ -110,194 +127,18 @@ class _MenuScreenState extends State<MenuScreen> {
   }
 
   Future<void> _showAddMenuDialog() async {
-    List<Restaurant> restaurants = [];
-    String? loadError;
-
-    try {
-      restaurants = await _apiService.getRestaurants();
-    } catch (e) {
-      loadError = e.toString();
-    }
-
-    if (!mounted) return;
-
-    if (loadError != null || restaurants.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            loadError != null
-                ? 'Gagal memuat daftar restoran: $loadError'
-                : 'Tambahkan restoran terlebih dahulu sebelum menambah menu.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    final formKey = GlobalKey<FormState>();
-    final nameController = TextEditingController();
-    final priceController = TextEditingController();
-    final descriptionController = TextEditingController();
-    final imageUrlController = TextEditingController();
-    Restaurant selectedRestaurant = restaurants.first;
-    bool isSubmitting = false;
-
-    final bool? created = await showDialog<bool>(
+    final created = await showDialog<Menu>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            Future<void> submit() async {
-              if (!formKey.currentState!.validate()) return;
-
-              final parsedPrice = int.tryParse(priceController.text.trim());
-              if (parsedPrice == null || parsedPrice < 0) {
-                ScaffoldMessenger.of(this.context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Harga harus berupa angka bulat valid'),
-                  ),
-                );
-                return;
-              }
-
-              setDialogState(() {
-                isSubmitting = true;
-              });
-
-              try {
-                await _apiService.createMenu(
-                  restaurantId: selectedRestaurant.id,
-                  restaurantName: selectedRestaurant.name,
-                  name: nameController.text,
-                  price: parsedPrice,
-                  description: descriptionController.text,
-                  imageUrl: imageUrlController.text,
-                );
-                if (dialogContext.mounted) {
-                  Navigator.of(dialogContext).pop(true);
-                }
-              } catch (e) {
-                setDialogState(() {
-                  isSubmitting = false;
-                });
-                if (this.context.mounted) {
-                  ScaffoldMessenger.of(this.context).showSnackBar(
-                    SnackBar(content: Text('Gagal menambah menu: $e')),
-                  );
-                }
-              }
-            }
-
-            return AlertDialog(
-              title: const Text('Tambah Menu'),
-              content: SingleChildScrollView(
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      DropdownButtonFormField<Restaurant>(
-                        initialValue: selectedRestaurant,
-                        decoration: const InputDecoration(
-                          labelText: 'Restoran *',
-                        ),
-                        items: restaurants
-                            .map(
-                              (r) => DropdownMenuItem<Restaurant>(
-                                value: r,
-                                child: Text(
-                                  r.name,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (value) {
-                          if (value != null) {
-                            setDialogState(() {
-                              selectedRestaurant = value;
-                            });
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: nameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Nama Menu *',
-                        ),
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Nama menu wajib diisi'
-                            : null,
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: priceController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Harga (Rp) *',
-                          hintText: 'Contoh: 15000',
-                        ),
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Harga wajib diisi'
-                            : null,
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: descriptionController,
-                        decoration: const InputDecoration(
-                          labelText: 'Deskripsi (opsional)',
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: imageUrlController,
-                        decoration: const InputDecoration(
-                          labelText: 'Image URL (opsional)',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isSubmitting
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Batal'),
-                ),
-                ElevatedButton(
-                  onPressed: isSubmitting ? null : submit,
-                  child: isSubmitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Simpan'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (_) => const MenuFormDialog(),
     );
 
-    nameController.dispose();
-    priceController.dispose();
-    descriptionController.dispose();
-    imageUrlController.dispose();
+    if (created == null || !mounted) return;
 
-    if (created == true && mounted) {
-      await _refreshMenus();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Menu berhasil ditambahkan!')),
-        );
-      }
-    }
+    dataSync.bump(); // memicu refresh daftar (termasuk layar ini)
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Menu berhasil ditambahkan!')));
   }
 
   @override
@@ -322,20 +163,8 @@ class _MenuScreenState extends State<MenuScreen> {
               return ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text('Gagal memuat menu: ${snapshot.error}'),
-                        const SizedBox(height: 12),
-                        ElevatedButton(
-                          onPressed: _refreshMenus,
-                          child: const Text('Coba Lagi'),
-                        ),
-                      ],
-                    ),
-                  ),
+                  const SizedBox(height: 80),
+                  ErrorState(error: snapshot.error!, onRetry: _refreshMenus),
                 ],
               );
             }
@@ -387,7 +216,7 @@ class _MenuScreenState extends State<MenuScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     scrollDirection: Axis.horizontal,
                     itemCount: _categories.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
                       final category = _categories[index];
                       final isSelected = _selectedCategory == category;
@@ -433,35 +262,39 @@ class _MenuScreenState extends State<MenuScreen> {
                           itemCount: filteredMenus.length,
                           itemBuilder: (context, index) {
                             final menu = filteredMenus[index];
+                            final heroTag = 'menu-list-${menu.id}';
                             final cleanRestaurant = menu.restaurantName.trim();
                             final hasValidRestaurant =
                                 cleanRestaurant.isNotEmpty &&
                                 cleanRestaurant.toLowerCase() != 'restoran';
                             final subtitleText = hasValidRestaurant
-                                ? '$cleanRestaurant • Rp ${menu.price}'
-                                : 'Rp ${menu.price}';
+                                ? '$cleanRestaurant • ${formatRupiah(menu.price)}'
+                                : formatRupiah(menu.price);
 
                             return Card(
                               margin: const EdgeInsets.only(bottom: 10),
                               child: ListTile(
-                                leading: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.network(
-                                    menu.imageUrl,
-                                    width: 52,
-                                    height: 52,
-                                    fit: BoxFit.cover,
-                                    errorBuilder:
-                                        (context, error, stackTrace) =>
-                                            Container(
-                                              width: 52,
-                                              height: 52,
-                                              color: Colors.grey.shade300,
-                                              child: const Icon(
-                                                Icons.fastfood,
-                                                size: 24,
+                                leading: Hero(
+                                  tag: heroTag,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(
+                                      menu.imageUrl,
+                                      width: 52,
+                                      height: 52,
+                                      fit: BoxFit.cover,
+                                      errorBuilder:
+                                          (context, error, stackTrace) =>
+                                              Container(
+                                                width: 52,
+                                                height: 52,
+                                                color: Colors.grey.shade300,
+                                                child: const Icon(
+                                                  Icons.fastfood,
+                                                  size: 24,
+                                                ),
                                               ),
-                                            ),
+                                    ),
                                   ),
                                 ),
                                 title: Text(
@@ -479,8 +312,10 @@ class _MenuScreenState extends State<MenuScreen> {
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) =>
-                                          MenuDetailScreen(menu: menu),
+                                      builder: (_) => MenuDetailScreen(
+                                        menu: menu,
+                                        heroTag: heroTag,
+                                      ),
                                     ),
                                   );
                                 },

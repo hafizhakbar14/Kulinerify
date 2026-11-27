@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../models/restaurant_model.dart';
+import '../providers/app_state.dart';
 import '../services/api_service.dart';
+import '../widgets/category_rating.dart';
+import '../widgets/error_state.dart';
+import '../widgets/restaurant_form_dialog.dart';
 import 'restaurant_detail_screen.dart';
 
 class RestaurantScreen extends StatefulWidget {
@@ -23,19 +27,33 @@ class _RestaurantScreenState extends State<RestaurantScreen> {
   void initState() {
     super.initState();
     _restaurantsFuture = _apiService.getRestaurants();
+    dataSync.addListener(_onDataChanged);
   }
 
   @override
   void dispose() {
+    dataSync.removeListener(_onDataChanged);
     _searchController.dispose();
     super.dispose();
+  }
+
+  // Dipanggil saat ada tambah/edit/hapus (dari layar ini maupun layar lain).
+  void _onDataChanged() {
+    if (!mounted) return;
+    setState(() {
+      _restaurantsFuture = _apiService.getRestaurants();
+    });
   }
 
   Future<void> _refreshRestaurants() async {
     setState(() {
       _restaurantsFuture = _apiService.getRestaurants();
     });
-    await _restaurantsFuture;
+    try {
+      await _restaurantsFuture;
+    } catch (_) {
+      // Error ditampilkan oleh FutureBuilder.
+    }
   }
 
   List<String> _extractCategories(List<Restaurant> restaurants) {
@@ -68,174 +86,18 @@ class _RestaurantScreenState extends State<RestaurantScreen> {
   }
 
   Future<void> _showAddRestaurantDialog() async {
-    final formKey = GlobalKey<FormState>();
-    final nameController = TextEditingController();
-    final categoryController = TextEditingController();
-    final addressController = TextEditingController();
-    final ratingController = TextEditingController();
-    final imageUrlController = TextEditingController();
-    final mapsUrlController = TextEditingController();
-    bool isSubmitting = false;
-
-    final bool? created = await showDialog<bool>(
+    final created = await showDialog<Restaurant>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            Future<void> submit() async {
-              if (!formKey.currentState!.validate()) return;
-
-              final rawRating = ratingController.text.trim();
-              double? parsedRating;
-              if (rawRating.isNotEmpty) {
-                parsedRating = double.tryParse(rawRating.replaceAll(',', '.'));
-                if (parsedRating == null ||
-                    parsedRating < 0 ||
-                    parsedRating > 5) {
-                  ScaffoldMessenger.of(this.context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Rating harus berupa angka 0.0 - 5.0'),
-                    ),
-                  );
-                  return;
-                }
-              }
-
-              setDialogState(() {
-                isSubmitting = true;
-              });
-
-              try {
-                await _apiService.createRestaurant(
-                  name: nameController.text,
-                  category: categoryController.text,
-                  address: addressController.text,
-                  rating: parsedRating,
-                  imageUrl: imageUrlController.text,
-                  mapsUrl: mapsUrlController.text,
-                );
-                if (dialogContext.mounted) {
-                  Navigator.of(dialogContext).pop(true);
-                }
-              } catch (e) {
-                setDialogState(() {
-                  isSubmitting = false;
-                });
-                if (this.context.mounted) {
-                  ScaffoldMessenger.of(this.context).showSnackBar(
-                    SnackBar(content: Text('Gagal menambah restoran: $e')),
-                  );
-                }
-              }
-            }
-
-            return AlertDialog(
-              title: const Text('Tambah Restoran'),
-              content: SingleChildScrollView(
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextFormField(
-                        controller: nameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Nama Restoran *',
-                        ),
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Nama wajib diisi'
-                            : null,
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: categoryController,
-                        decoration: const InputDecoration(
-                          labelText: 'Kategori *',
-                          hintText: 'Contoh: Ayam, Kopi, Warkop',
-                        ),
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Kategori wajib diisi'
-                            : null,
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: addressController,
-                        decoration: const InputDecoration(
-                          labelText: 'Alamat *',
-                        ),
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Alamat wajib diisi'
-                            : null,
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: ratingController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'Rating (opsional)',
-                          hintText: 'Contoh: 4.5',
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: imageUrlController,
-                        decoration: const InputDecoration(
-                          labelText: 'Image URL (opsional)',
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: mapsUrlController,
-                        decoration: const InputDecoration(
-                          labelText: 'Maps URL (opsional)',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isSubmitting
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Batal'),
-                ),
-                ElevatedButton(
-                  onPressed: isSubmitting ? null : submit,
-                  child: isSubmitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Simpan'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (_) => const RestaurantFormDialog(),
     );
 
-    nameController.dispose();
-    categoryController.dispose();
-    addressController.dispose();
-    ratingController.dispose();
-    imageUrlController.dispose();
-    mapsUrlController.dispose();
+    if (created == null || !mounted) return;
 
-    if (created == true && mounted) {
-      await _refreshRestaurants();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Restoran berhasil ditambahkan!')),
-        );
-      }
-    }
+    dataSync.bump(); // memicu refresh daftar (termasuk layar ini)
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Restoran berhasil ditambahkan!')),
+    );
   }
 
   @override
@@ -260,19 +122,10 @@ class _RestaurantScreenState extends State<RestaurantScreen> {
               return ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text('Gagal memuat restoran: ${snapshot.error}'),
-                        const SizedBox(height: 12),
-                        ElevatedButton(
-                          onPressed: _refreshRestaurants,
-                          child: const Text('Coba Lagi'),
-                        ),
-                      ],
-                    ),
+                  const SizedBox(height: 80),
+                  ErrorState(
+                    error: snapshot.error!,
+                    onRetry: _refreshRestaurants,
                   ),
                 ],
               );
@@ -332,7 +185,7 @@ class _RestaurantScreenState extends State<RestaurantScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     scrollDirection: Axis.horizontal,
                     itemCount: categories.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
                       final category = categories[index];
                       final isSelected = _selectedCategory == category;
@@ -378,27 +231,31 @@ class _RestaurantScreenState extends State<RestaurantScreen> {
                           itemCount: filteredRestaurants.length,
                           itemBuilder: (context, index) {
                             final restaurant = filteredRestaurants[index];
+                            final heroTag = 'rest-list-${restaurant.id}';
                             return Card(
                               margin: const EdgeInsets.only(bottom: 12),
                               child: ListTile(
-                                leading: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.network(
-                                    restaurant.imageUrl,
-                                    width: 58,
-                                    height: 58,
-                                    fit: BoxFit.cover,
-                                    errorBuilder:
-                                        (context, error, stackTrace) =>
-                                            Container(
-                                              width: 58,
-                                              height: 58,
-                                              color: Colors.grey.shade300,
-                                              child: const Icon(
-                                                Icons.restaurant,
-                                                size: 26,
+                                leading: Hero(
+                                  tag: heroTag,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(
+                                      restaurant.imageUrl,
+                                      width: 58,
+                                      height: 58,
+                                      fit: BoxFit.cover,
+                                      errorBuilder:
+                                          (context, error, stackTrace) =>
+                                              Container(
+                                                width: 58,
+                                                height: 58,
+                                                color: Colors.grey.shade300,
+                                                child: const Icon(
+                                                  Icons.restaurant,
+                                                  size: 26,
+                                                ),
                                               ),
-                                            ),
+                                    ),
                                   ),
                                 ),
                                 title: Text(
@@ -407,8 +264,19 @@ class _RestaurantScreenState extends State<RestaurantScreen> {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                subtitle: Text(
-                                  '${restaurant.category} • ⭐ ${restaurant.rating}\n${restaurant.address}',
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    CategoryRating(
+                                      category: restaurant.category,
+                                      rating: restaurant.rating,
+                                    ),
+                                    Text(
+                                      restaurant.address,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
                                 ),
                                 isThreeLine: true,
                                 trailing: const Icon(
@@ -419,10 +287,10 @@ class _RestaurantScreenState extends State<RestaurantScreen> {
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) =>
-                                          RestaurantDetailScreen(
-                                            restaurant: restaurant,
-                                          ),
+                                      builder: (_) => RestaurantDetailScreen(
+                                        restaurant: restaurant,
+                                        heroTag: heroTag,
+                                      ),
                                     ),
                                   );
                                 },
